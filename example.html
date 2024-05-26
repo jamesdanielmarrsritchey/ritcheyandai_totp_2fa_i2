@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Example</title>
+</head>
+<body>
+<div id='output'>Make sure you have Javascript enabled in your browser!</div>
+<script src="function.js"></script>
+<script>
+/* If secret key is NOT in base32 */
+let secretKey = 'Example Key';
+let base32SecretKey = toBase32(secretKey);
+totp(base32SecretKey).then(result => {
+            document.getElementById('output').textContent = result;
+        });
+/* If secret key is already in base32 */
+/* let base32SecretKey = 'HELLO';
+totp(base32SecretKey).then(result => {
+            document.getElementById('output').textContent = result;
+        });
+*/
+</script>
+</body>
+</html>

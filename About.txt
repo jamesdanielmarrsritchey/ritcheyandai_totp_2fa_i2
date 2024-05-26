@@ -1,0 +1,15 @@
+Name: Ritchey&AI TOTP 2FA
+Implementation: 2
+Version: 1
+Long Identifier: Ritchey&AI TOTP 2FA i2 v1
+Short Identifier: R&AIT2i2v1
+Description: An EXPERIMENTAL Javascript function generating TOTP 2FA codes. Read the notes before using!
+History:
+ - Project started May 25, 2024.
+ - Version 1 completed May 25, 2024.
+Author: James Daniel Marrs Ritchey
+Licensing: All Rights Reserved.
+Notes:
+ - This project was developed in part by using the tool GitHub Copilot Business.
+ - Vet the code before attempting to use/run it! For me, making this project was more about learning how to use AI tools than the actual project itself.
+ - This program seems to be working as intended, but has had very limited testing. It is still considered experimental at this stage, so don't be surprised if it doesn't work correctly.

@@ -1,0 +1,992 @@
+jamesdanielmarrsritchey: ```#include <iostream>
+#include <string>
+#include <sstream>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <ctime>
+#include <vector> 
+
+std::string base32_decode(const std::string &secret) {
+    std::string decoded;
+    std::string base32_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    std::string padding_chars = "======";
+    
+    int padding_count = 0;
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            padding_count++;
+        }
+    }
+    
+    int bit_count = (secret.size() * 5) - (padding_count * 5);
+    int byte_count = bit_count / 8;
+    
+    std::vector<uint8_t> bytes(byte_count);
+    int byte_index = 0;
+    int bit_index = 0;
+    
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            break;
+        }
+        
+        int value = base32_chars.find(c);
+        if (value == std::string::npos) {
+            // Invalid character
+            return "";
+        }
+        
+        for (int i = 4; i >= 0; i--) {
+            bytes[byte_index] |= ((value >> i) & 1) << (7 - bit_index);
+            bit_index++;
+            if (bit_index == 8) {
+                byte_index++;
+                bit_index = 0;
+            }
+        }
+    }
+    
+    decoded.assign(bytes.begin(), bytes.end());
+    return decoded;
+}
+
+uint32_t dynamic_truncate(uint8_t *hash) {
+    int offset = hash[19] & 0xf;
+    return ((hash[offset] & 0x7f) << 24 |
+            (hash[offset + 1] & 0xff) << 16 |
+            (hash[offset + 2] & 0xff) << 8 |
+            (hash[offset + 3] & 0xff)) % 1000000;
+}
+
+uint32_t totp(const std::string &secret, int interval = 30) {
+    std::string decoded_secret = base32_decode(secret);
+    uint64_t timestamp = std::time(nullptr) / interval;
+    uint8_t msg[8];
+    for (int i = 8; i--; timestamp >>= 8) {
+        msg[i] = timestamp;
+    }
+    uint8_t hash[20];
+    unsigned int len;
+    HMAC(EVP_sha1(), decoded_secret.c_str(), decoded_secret.size(), msg, 8, hash, &len);
+    return dynamic_truncate(hash);
+}
+
+int main() {
+    std::string secret;
+    std::cout << "Enter your secret key: ";
+    std::cin >> secret;
+    std::cout << "Your 2FA code is: " << totp(secret) << std::endl;
+    return 0;
+}
+
+GitHub Copilot: This C++ code is a simple implementation of the Time-based One-Time Password (TOTP) algorithm, which is commonly used for two-factor authentication (2FA). Here's a breakdown of the code:
+
+1. `base32_decode`: This function decodes a base32-encoded string. It first counts the padding characters, calculates the number of bits and bytes in the decoded string, and then decodes the base32 characters into bytes.
+
+2. `dynamic_truncate`: This function is part of the TOTP algorithm. It takes a 20-byte hash and returns a 6-digit number. This is done by selecting a 4-byte slice of the hash and converting it to an integer, then taking the modulus by 1,000,000 to get a 6-digit number.
+
+3. `totp`: This function generates a TOTP given a base32-encoded secret and an interval. It first decodes the secret, then generates a message based on the current timestamp divided by the interval. It then calculates the HMAC-SHA1 of the message using the decoded secret as the key, and finally applies `dynamic_truncate` to the hash to get the TOTP.
+
+4. `main`: This function prompts the user for a secret key, generates a TOTP using that key, and prints it out.
+
+Please note that this code uses the OpenSSL library for HMAC and SHA1 calculations.
+
+jamesdanielmarrsritchey: Instead of asking the user to input a secret key, allow it to be passed from the commandline as an argument formatted as "--private_key value"
+
+GitHub Copilot: You can use the `getopt` function from the `unistd.h` library to parse command-line options. Here's how you can modify your `main` function to accept the `--private_key` option:
+
+```cpp
+#include <unistd.h>
+#include <getopt.h>
+
+int main(int argc, char *argv[]) {
+    std::string secret;
+    int opt;
+    static struct option long_options[] = {
+        {"private_key", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'p':
+                secret = optarg;
+                break;
+            default:
+                std::cerr << "Usage: " << argv[0] << " --private_key value" << std::endl;
+                return 1;
+        }
+    }
+    if (secret.empty()) {
+        std::cerr << "Private key is required." << std::endl;
+        return 1;
+    }
+    std::cout << "Your 2FA code is: " << totp(secret) << std::endl;
+    return 0;
+}
+```
+
+This code defines a `long_options` array for `getopt_long` to use. It specifies that `--private_key` requires an argument, which is stored in `optarg` when the option is processed. If the `--private_key` option is not provided, the program prints a usage message and exits with a non-zero status.
+
+jamesdanielmarrsritchey: Add this suggestion to the full program code.
+
+GitHub Copilot: Here's the full program code with the command-line argument parsing added to the `main` function:
+
+```cpp
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <ctime>
+#include <vector> 
+#include <unistd.h>
+#include <getopt.h>
+
+std::string base32_decode(const std::string &secret) {
+    std::string decoded;
+    std::string base32_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    std::string padding_chars = "======";
+    
+    int padding_count = 0;
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            padding_count++;
+        }
+    }
+    
+    int bit_count = (secret.size() * 5) - (padding_count * 5);
+    int byte_count = bit_count / 8;
+    
+    std::vector<uint8_t> bytes(byte_count);
+    int byte_index = 0;
+    int bit_index = 0;
+    
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            break;
+        }
+        
+        int value = base32_chars.find(c);
+        if (value == std::string::npos) {
+            // Invalid character
+            return "";
+        }
+        
+        for (int i = 4; i >= 0; i--) {
+            bytes[byte_index] |= ((value >> i) & 1) << (7 - bit_index);
+            bit_index++;
+            if (bit_index == 8) {
+                byte_index++;
+                bit_index = 0;
+            }
+        }
+    }
+    
+    decoded.assign(bytes.begin(), bytes.end());
+    return decoded;
+}
+
+uint32_t dynamic_truncate(uint8_t *hash) {
+    int offset = hash[19] & 0xf;
+    return ((hash[offset] & 0x7f) << 24 |
+            (hash[offset + 1] & 0xff) << 16 |
+            (hash[offset + 2] & 0xff) << 8 |
+            (hash[offset + 3] & 0xff)) % 1000000;
+}
+
+uint32_t totp(const std::string &secret, int interval = 30) {
+    std::string decoded_secret = base32_decode(secret);
+    uint64_t timestamp = std::time(nullptr) / interval;
+    uint8_t msg[8];
+    for (int i = 8; i--; timestamp >>= 8) {
+        msg[i] = timestamp;
+    }
+    uint8_t hash[20];
+    unsigned int len;
+    HMAC(EVP_sha1(), decoded_secret.c_str(), decoded_secret.size(), msg, 8, hash, &len);
+    return dynamic_truncate(hash);
+}
+
+int main(int argc, char *argv[]) {
+    std::string secret;
+    int opt;
+    static struct option long_options[] = {
+        {"private_key", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'p':
+                secret = optarg;
+                break;
+            default:
+                std::cerr << "Usage: " << argv[0] << " --private_key value" << std::endl;
+                return 1;
+        }
+    }
+    if (secret.empty()) {
+        std::cerr << "Private key is required." << std::endl;
+        return 1;
+    }
+    std::cout << "Your 2FA code is: " << totp(secret) << std::endl;
+    return 0;
+}
+```
+
+jamesdanielmarrsritchey: The return should only contain the code, not any additional message.
+
+GitHub Copilot: Here's the updated code:
+
+```cpp
+#include <unistd.h>
+#include <getopt.h>
+
+int main(int argc, char *argv[]) {
+    std::string secret;
+    int opt;
+    static struct option long_options[] = {
+        {"private_key", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'p':
+                secret = optarg;
+                break;
+            default:
+                return 1;
+        }
+    }
+    if (secret.empty()) {
+        return 1;
+    }
+    std::cout << totp(secret) << std::endl;
+    return 0;
+}
+```
+
+jamesdanielmarrsritchey: Add this suggestion to the full program code.
+
+GitHub Copilot: Here's the full program code with the command-line argument parsing added to the `main` function:
+
+```cpp
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <ctime>
+#include <vector> 
+#include <unistd.h>
+#include <getopt.h>
+
+std::string base32_decode(const std::string &secret) {
+    std::string decoded;
+    std::string base32_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    std::string padding_chars = "======";
+    
+    int padding_count = 0;
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            padding_count++;
+        }
+    }
+    
+    int bit_count = (secret.size() * 5) - (padding_count * 5);
+    int byte_count = bit_count / 8;
+    
+    std::vector<uint8_t> bytes(byte_count);
+    int byte_index = 0;
+    int bit_index = 0;
+    
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            break;
+        }
+        
+        int value = base32_chars.find(c);
+        if (value == std::string::npos) {
+            // Invalid character
+            return "";
+        }
+        
+        for (int i = 4; i >= 0; i--) {
+            bytes[byte_index] |= ((value >> i) & 1) << (7 - bit_index);
+            bit_index++;
+            if (bit_index == 8) {
+                byte_index++;
+                bit_index = 0;
+            }
+        }
+    }
+    
+    decoded.assign(bytes.begin(), bytes.end());
+    return decoded;
+}
+
+uint32_t dynamic_truncate(uint8_t *hash) {
+    int offset = hash[19] & 0xf;
+    return ((hash[offset] & 0x7f) << 24 |
+            (hash[offset + 1] & 0xff) << 16 |
+            (hash[offset + 2] & 0xff) << 8 |
+            (hash[offset + 3] & 0xff)) % 1000000;
+}
+
+uint32_t totp(const std::string &secret, int interval = 30) {
+    std::string decoded_secret = base32_decode(secret);
+    uint64_t timestamp = std::time(nullptr) / interval;
+    uint8_t msg[8];
+    for (int i = 8; i--; timestamp >>= 8) {
+        msg[i] = timestamp;
+    }
+    uint8_t hash[20];
+    unsigned int len;
+    HMAC(EVP_sha1(), decoded_secret.c_str(), decoded_secret.size(), msg, 8, hash, &len);
+    return dynamic_truncate(hash);
+}
+
+int main(int argc, char *argv[]) {
+    std::string secret;
+    int opt;
+    static struct option long_options[] = {
+        {"private_key", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'p':
+                secret = optarg;
+                break;
+            default:
+                return 1;
+        }
+    }
+    if (secret.empty()) {
+        return 1;
+    }
+    std::cout << totp(secret) << std::endl;
+    return 0;
+}
+```
+
+jamesdanielmarrsritchey: At the end of the file add comments describing how to compile the program, and how to install any necessary libraries on Debian.
+
+GitHub Copilot: You can add the following comments at the end of your file:
+
+```cpp
+/*
+To compile this program, you need to have g++ and OpenSSL installed on your system.
+
+On Debian, you can install these with the following commands:
+
+    sudo apt-get update
+    sudo apt-get install g++ libssl-dev
+
+Once these are installed, you can compile the program with the following command:
+
+    g++ -o program_name source.cpp -lcrypto
+
+Replace "program_name" with the name you want to give to the compiled program, and "source.cpp" with the name of your source file.
+
+To run the program, use the following command:
+
+    ./program_name --private_key your_private_key
+
+Replace "program_name" with the name of your compiled program, and "your_private_key" with your actual private key.
+*/
+```
+
+jamesdanielmarrsritchey: Add this comment to the full program code.
+
+GitHub Copilot: Here's the full program code with the added comment:
+
+```cpp
+#include <iostream>
+#include <string>
+#include <sstream>
+#include <openssl/hmac.h>
+#include <openssl/evp.h>
+#include <ctime>
+#include <vector> 
+#include <unistd.h>
+#include <getopt.h>
+
+std::string base32_decode(const std::string &secret) {
+    std::string decoded;
+    std::string base32_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    std::string padding_chars = "======";
+    
+    int padding_count = 0;
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            padding_count++;
+        }
+    }
+    
+    int bit_count = (secret.size() * 5) - (padding_count * 5);
+    int byte_count = bit_count / 8;
+    
+    std::vector<uint8_t> bytes(byte_count);
+    int byte_index = 0;
+    int bit_index = 0;
+    
+    for (char c : secret) {
+        if (padding_chars.find(c) != std::string::npos) {
+            break;
+        }
+        
+        int value = base32_chars.find(c);
+        if (value == std::string::npos) {
+            // Invalid character
+            return "";
+        }
+        
+        for (int i = 4; i >= 0; i--) {
+            bytes[byte_index] |= ((value >> i) & 1) << (7 - bit_index);
+            bit_index++;
+            if (bit_index == 8) {
+                byte_index++;
+                bit_index = 0;
+            }
+        }
+    }
+    
+    decoded.assign(bytes.begin(), bytes.end());
+    return decoded;
+}
+
+uint32_t dynamic_truncate(uint8_t *hash) {
+    int offset = hash[19] & 0xf;
+    return ((hash[offset] & 0x7f) << 24 |
+            (hash[offset + 1] & 0xff) << 16 |
+            (hash[offset + 2] & 0xff) << 8 |
+            (hash[offset + 3] & 0xff)) % 1000000;
+}
+
+uint32_t totp(const std::string &secret, int interval = 30) {
+    std::string decoded_secret = base32_decode(secret);
+    uint64_t timestamp = std::time(nullptr) / interval;
+    uint8_t msg[8];
+    for (int i = 8; i--; timestamp >>= 8) {
+        msg[i] = timestamp;
+    }
+    uint8_t hash[20];
+    unsigned int len;
+    HMAC(EVP_sha1(), decoded_secret.c_str(), decoded_secret.size(), msg, 8, hash, &len);
+    return dynamic_truncate(hash);
+}
+
+int main(int argc, char *argv[]) {
+    std::string secret;
+    int opt;
+    static struct option long_options[] = {
+        {"private_key", required_argument, 0, 'p'},
+        {0, 0, 0, 0}
+    };
+    int option_index = 0;
+    while ((opt = getopt_long(argc, argv, "p:", long_options, &option_index)) != -1) {
+        switch (opt) {
+            case 'p':
+                secret = optarg;
+                break;
+            default:
+                return 1;
+        }
+    }
+    if (secret.empty()) {
+        return 1;
+    }
+    std::cout << totp(secret) << std::endl;
+    return 0;
+}
+
+/*
+To compile this program, you need to have g++ and OpenSSL installed on your system.
+
+On Debian, you can install these with the following commands:
+
+    sudo apt-get update
+    sudo apt-get install g++ libssl-dev
+
+Once these are installed, you can compile the program with the following command:
+
+    g++ -o program_name source.cpp -lcrypto
+
+Replace "program_name" with the name you want to give to the compiled program, and "source.cpp" with the name of your source file.
+
+To run the program, use the following command:
+
+    ./program_name --private_key your_private_key
+
+Replace "program_name" with the name of your compiled program, and "your_private_key" with your actual private key.
+*/
+```
+
+jamesdanielmarrsritchey: Write an equivalent program in Javascript.
+
+GitHub Copilot: Here's the equivalent program in JavaScript using Node.js:
+
+```javascript
+const crypto = require('crypto');
+const yargs = require('yargs/yargs');
+const { hideBin } = require('yargs/helpers');
+const argv = yargs(hideBin(process.argv)).argv;
+
+function base32Decode(secret) {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
+    let bin = '';
+    for (let i = 0; i < secret.length; i++) {
+        let index = alphabet.indexOf(secret[i]);
+        if (index === -1) {
+            throw new Error('Invalid character');
+        }
+        bin += index.toString(2).padStart(5, '0');
+    }
+    let hex = parseInt(bin, 2).toString(16);
+    return Buffer.from(hex, 'hex');
+}
+
+function dynamicTruncate(hash) {
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary = ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    return binary % 1000000;
+}
+
+function totp(secret, interval = 30) {
+    const decodedSecret = base32Decode(secret);
+    const timestamp = Math.floor(Date.now() / 1000 / interval);
+    const msg = Buffer.alloc(8);
+    for (let i = 0; i < 8; i++) {
+        msg[7 - i] = timestamp & 0xff;
+        timestamp >>= 8;
+    }
+    const hash = crypto.createHmac('sha1', decodedSecret).update(msg).digest();
+    return dynamicTruncate(hash);
+}
+
+if (!argv.private_key) {
+    console.error('Private key is required');
+    process.exit(1);
+}
+
+console.log(totp(argv.private_key));
+```
+
+This program uses the `crypto` module for HMAC-SHA1 and the `yargs` module for command-line argument parsing. You can install `yargs` with the following command:
+
+```bash
+npm install yargs
+```
+
+To run the program, use the following command:
+
+```bash
+node program_name.js --private_key your_private_key
+```
+
+Replace "program_name.js" with the name of your JavaScript file, and "your_private_key" with your actual private key.
+
+jamesdanielmarrsritchey: Don't use Node.js. This should work in a web browser.
+
+GitHub Copilot: Here's an equivalent program in JavaScript that can be run in a web browser. This uses the Web Cryptography API for HMAC-SHA1 and the `window.location.search` property for command-line argument parsing.
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+<script>
+async function totp(secret, interval = 30) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bin = '';
+    for (let i = 0; i < secret.length; i++) {
+        let index = base32Chars.indexOf(secret[i]);
+        if (index === -1) {
+            throw new Error('Invalid character');
+        }
+        bin += index.toString(2).padStart(5, '0');
+    }
+    let hex = parseInt(bin, 2).toString(16);
+    let decodedSecret = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+    let timestamp = Math.floor(new Date().getTime() / 1000 / interval);
+    let msg = new Uint8Array(8);
+    for (let i = 0; i < 8; i++) {
+        msg[7 - i] = timestamp & 0xff;
+        timestamp >>= 8;
+    }
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+        "raw", 
+        decodedSecret, 
+        { name: "HMAC", hash: "SHA-1" }, 
+        false, 
+        ["sign"]
+    );
+
+    const hash = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, msg));
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary = ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    return binary % 1000000;
+}
+
+const urlParams = new URLSearchParams(window.location.search);
+const secret = urlParams.get('private_key');
+if (!secret) {
+    console.error('Private key is required');
+} else {
+    totp(secret).then(console.log);
+}
+</script>
+</body>
+</html>
+```
+
+To run the program, open the HTML file in a web browser and append `?private_key=your_private_key` to the URL, replacing "your_private_key" with your actual private key. The TOTP will be logged to the console.
+
+jamesdanielmarrsritchey: Don't pass the private key using the URL. Instead, make this into a javascript function, with the private key as a passed value.
+
+GitHub Copilot: Sure, here's the JavaScript function that can be run in a web browser:
+
+```javascript
+async function totp(secret, interval = 30) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bin = '';
+    for (let i = 0; i < secret.length; i++) {
+        let index = base32Chars.indexOf(secret[i]);
+        if (index === -1) {
+            throw new Error('Invalid character');
+        }
+        bin += index.toString(2).padStart(5, '0');
+    }
+    let hex = parseInt(bin, 2).toString(16);
+    let decodedSecret = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+    let timestamp = Math.floor(new Date().getTime() / 1000 / interval);
+    let msg = new Uint8Array(8);
+    for (let i = 0; i < 8; i++) {
+        msg[7 - i] = timestamp & 0xff;
+        timestamp >>= 8;
+    }
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+        "raw", 
+        decodedSecret, 
+        { name: "HMAC", hash: "SHA-1" }, 
+        false, 
+        ["sign"]
+    );
+
+    const hash = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, msg));
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary = ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    return binary % 1000000;
+}
+```
+
+You can call this function with your private key as an argument:
+
+```javascript
+totp('your_private_key').then(console.log);
+```
+
+Replace `'your_private_key'` with your actual private key. The TOTP will be logged to the console.
+
+jamesdanielmarrsritchey: How can I use this to display the return on an HTML page?
+
+GitHub Copilot: You can use the `document.getElementById` method to select an HTML element and then update its `textContent` property with the result. Here's an example:
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+    <p id="output"></p>
+    <script>
+        async function totp(secret, interval = 30) {
+            const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+            let bin = '';
+            for (let i = 0; i < secret.length; i++) {
+                let index = base32Chars.indexOf(secret[i]);
+                if (index === -1) {
+                    throw new Error('Invalid character');
+                }
+                bin += index.toString(2).padStart(5, '0');
+            }
+            let hex = parseInt(bin, 2).toString(16);
+            let decodedSecret = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+            let timestamp = Math.floor(new Date().getTime() / 1000 / interval);
+            let msg = new Uint8Array(8);
+            for (let i = 0; i < 8; i++) {
+                msg[7 - i] = timestamp & 0xff;
+                timestamp >>= 8;
+            }
+
+            const cryptoKey = await window.crypto.subtle.importKey(
+                "raw", 
+                decodedSecret, 
+                { name: "HMAC", hash: "SHA-1" }, 
+                false, 
+                ["sign"]
+            );
+
+            const hash = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, msg));
+            const offset = hash[hash.length - 1] & 0xf;
+            const binary = ((hash[offset] & 0x7f) << 24) |
+                ((hash[offset + 1] & 0xff) << 16) |
+                ((hash[offset + 2] & 0xff) << 8) |
+                (hash[offset + 3] & 0xff);
+            return binary % 1000000;
+        }
+
+        totp('your_private_key').then(result => {
+            document.getElementById('output').textContent = result;
+        });
+    </script>
+</body>
+</html>
+```
+
+Replace `'your_private_key'` with your actual private key. The TOTP will be displayed in the paragraph with the id "output".
+
+jamesdanielmarrsritchey: What if the javascript function is stored in an external JS file?
+
+GitHub Copilot: If the JavaScript function is stored in an external JS file, you can include that file in your HTML using the `<script>` tag with the `src` attribute. Here's how you can do it:
+
+Assuming the JavaScript function is stored in a file named `totp.js`:
+
+```javascript
+async function totp(secret, interval = 30) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bin = '';
+    for (let i = 0; i < secret.length; i++) {
+        let index = base32Chars.indexOf(secret[i]);
+        if (index === -1) {
+            throw new Error('Invalid character');
+        }
+        bin += index.toString(2).padStart(5, '0');
+    }
+    let hex = parseInt(bin, 2).toString(16);
+    let decodedSecret = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+    let timestamp = Math.floor(new Date().getTime() / 1000 / interval);
+    let msg = new Uint8Array(8);
+    for (let i = 0; i < 8; i++) {
+        msg[7 - i] = timestamp & 0xff;
+        timestamp >>= 8;
+    }
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+        "raw", 
+        decodedSecret, 
+        { name: "HMAC", hash: "SHA-1" }, 
+        false, 
+        ["sign"]
+    );
+
+    const hash = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, msg));
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary = ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    return binary % 1000000;
+}
+```
+
+And here's your HTML file:
+
+```html
+<!DOCTYPE html>
+<html>
+<body>
+    <p id="output"></p>
+    <script src="totp.js"></script>
+    <script>
+        totp('your_private_key').then(result => {
+            document.getElementById('output').textContent = result;
+        });
+    </script>
+</body>
+</html>
+```
+
+Replace `'your_private_key'` with your actual private key. The TOTP will be displayed in the paragraph with the id "output". Make sure the `totp.js` file is in the same directory as your HTML file, or adjust the path in the `src` attribute accordingly.
+
+jamesdanielmarrsritchey: The javascript is throwing errors.
+
+GitHub Copilot: I'm sorry to hear that you're encountering errors. To help you troubleshoot, I'll need more information. Could you please provide the following details?
+
+1. The exact error message you're seeing.
+2. The line number where the error is occurring.
+3. The version of the browser you're using.
+4. Any changes you've made to the code.
+
+With this information, I'll be able to provide more specific guidance.
+
+jamesdanielmarrsritchey: Uncaught (in promise) Error: Invalid character
+
+GitHub Copilot: The error message "Uncaught (in promise) Error: Invalid character" is thrown when the secret key you're providing contains a character that is not in the base32 set "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567". 
+
+Please ensure that your secret key only contains these characters. If you're using a different encoding for your secret key, you'll need to adjust the code accordingly. 
+
+If you're sure that your secret key is correctly encoded in base32 and you're still seeing this error, there might be an issue with whitespace or other invisible characters. Try trimming your secret key or inspecting it in a text editor that shows invisible characters.
+
+jamesdanielmarrsritchey: Adjust the Javascript function to encode the secret key into base32.
+
+GitHub Copilot: The JavaScript function provided earlier assumes that the secret key is already in base32 format. If you have a secret key in ASCII or UTF-8 format, you'll need to convert it to base32 before using it. 
+
+Unfortunately, JavaScript doesn't have built-in support for base32 encoding. You'll need to use a library such as `hi-base32` or write your own base32 encoding function.
+
+Here's an example of how you can use the `hi-base32` library:
+
+1. First, include the library in your HTML file:
+
+```html
+<script src="https://unpkg.com/hi-base32"></script>
+```
+
+2. Then, use the `hi-base32.encode` function to encode your secret key:
+
+```javascript
+
+
+let
+
+ secretKey = 'your_secret_key';
+let base32SecretKey = hiBase32.encode(secretKey);
+```
+
+3. Finally, pass the base32-encoded secret key to the `totp` function:
+
+```javascript
+totp(base32SecretKey).then(console.log);
+```
+
+Please note that this requires an internet connection to load the `hi-base32` library from the CDN. If you want to use this offline, you'll need to download the library and include it locally.
+
+jamesdanielmarrsritchey: Don't use hi-base32. Write a custom function to encode in base32.
+
+GitHub Copilot: Sure, here's a custom function to encode a string into base32 in JavaScript:
+
+```javascript
+function toBase32(input) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = "";
+    let base32 = "";
+
+    for(let i = 0; i < input.length; i++) {
+        let binary = input.charCodeAt(i).toString(2);
+        bits += binary.padStart(8, '0');
+    }
+
+    for(let i = 0; i+5 <= bits.length; i+=5) {
+        let chunk = bits.substr(i, 5);
+        base32 += base32Chars[parseInt(chunk, 2)];
+    }
+
+    return base32;
+}
+```
+
+You can use this function to convert your secret key to base32:
+
+```javascript
+
+
+let
+
+ secretKey = 'your_secret_key';
+let base32SecretKey = toBase32(secretKey);
+```
+
+Then, pass the base32-encoded secret key to the `totp` function:
+
+```javascript
+totp(base32SecretKey).then(console.log);
+```
+
+Please note that this function assumes that the input string is ASCII. If your secret key contains non-ASCII characters, you'll need to encode it to bytes first.
+
+jamesdanielmarrsritchey: Add this suggestion to the full Javascript code.
+
+GitHub Copilot: Sure, here's the full JavaScript code with the base32 encoding function included:
+
+```javascript
+function toBase32(input) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bits = "";
+    let base32 = "";
+
+    for(let i = 0; i < input.length; i++) {
+        let binary = input.charCodeAt(i).toString(2);
+        bits += binary.padStart(8, '0');
+    }
+
+    for(let i = 0; i+5 <= bits.length; i+=5) {
+        let chunk = bits.substr(i, 5);
+        base32 += base32Chars[parseInt(chunk, 2)];
+    }
+
+    return base32;
+}
+
+async function totp(secret, interval = 30) {
+    const base32Chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+    let bin = '';
+    for (let i = 0; i < secret.length; i++) {
+        let index = base32Chars.indexOf(secret[i]);
+        if (index === -1) {
+            throw new Error('Invalid character');
+        }
+        bin += index.toString(2).padStart(5, '0');
+    }
+    let hex = parseInt(bin, 2).toString(16);
+    let decodedSecret = new Uint8Array(hex.match(/.{1,2}/g).map(byte => parseInt(byte, 16)));
+
+    let timestamp = Math.floor(new Date().getTime() / 1000 / interval);
+    let msg = new Uint8Array(8);
+    for (let i = 0; i < 8; i++) {
+        msg[7 - i] = timestamp & 0xff;
+        timestamp >>= 8;
+    }
+
+    const cryptoKey = await window.crypto.subtle.importKey(
+        "raw", 
+        decodedSecret, 
+        { name: "HMAC", hash: "SHA-1" }, 
+        false, 
+        ["sign"]
+    );
+
+    const hash = new Uint8Array(await window.crypto.subtle.sign("HMAC", cryptoKey, msg));
+    const offset = hash[hash.length - 1] & 0xf;
+    const binary = ((hash[offset] & 0x7f) << 24) |
+        ((hash[offset + 1] & 0xff) << 16) |
+        ((hash[offset + 2] & 0xff) << 8) |
+        (hash[offset + 3] & 0xff);
+    return binary % 1000000;
+}
+
+let secretKey
+
+ =
+
+ 'your_secret_key';
+let base32SecretKey = toBase32(secretKey);
+totp(base32SecretKey).then(console.log);
+```
+
+Replace `'your_secret_key'` with your actual secret key. The TOTP will be logged to the console.
